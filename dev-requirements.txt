@@ -1,2 +1,7 @@
+certifi
+urllib3
+schedule
+websocket-client
 flake8
+pytest
 autopep8
