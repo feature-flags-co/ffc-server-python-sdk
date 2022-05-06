@@ -19,6 +19,9 @@ set_config(config)
 
 client = get()
 
+all_flag_values = None
+last_user_key = ''
+
 while client.initialize:
     line = input('input user key and flag key seperated by / \n')
     if 'exit' == line.strip():
@@ -28,7 +31,11 @@ while client.initialize:
         user = {'key': user_key, 'name': user_key}
         ffc_user = FFCUser.from_dict(user)
         log.info('FFC Python SDK Test: user= %s' % ffc_user.to_json_str())
-        log.info('FFC Python SDK Test: variation= %s' % client.variation_detail(flag_key, user).to_json_str())
+        if(last_user_key != user_key or not all_flag_values):
+            all_flag_values = client.get_all_latest_flag_variations(user)
+        ed = all_flag_values.get(flag_key)
+        last_user_key = user_key
+        log.info('FFC Python SDK Test: variation= %s' % ed.to_json_str())
     except:
         log.exception('FFC Python SDK Test: unexpected error')
         break

@@ -1,3 +1,4 @@
+import base64
 import json
 import re
 from typing import Callable, Optional, Tuple
@@ -98,8 +99,10 @@ class Evaluator:
                 if ed:
                     return ed
         finally:
-            if ed and ffc_event:
-                ffc_event.add(FlagEventVariation(flag['ff']['keyName'], is_send_to_expt, ed))
+            if ed:
+                log.info('FFC Python SDK: User %s, Feature Flag %s, Flag Value %s' % (user.get('KeyId'), ed.key_name, ed.variation))
+                if ffc_event:
+                    ffc_event.add(FlagEventVariation(flag['ff']['keyName'], is_send_to_expt, ed))
 
     #  return a value when flag is off or not match prerequisite rule
     def _match_feature_flag_disabled_user_variation(self, flag: dict, user: FFCUser, ffc_event: FFCEvent) -> Tuple[bool, Optional[EvalDetail]]:
@@ -116,7 +119,7 @@ class Evaluator:
                 pre_flag = self.__flag_getter(prerequisite['prerequisiteFeatureFlagId'])
                 if not pre_flag:
                     pre_flag_key = unpack_feature_flag_id(prerequisite['prerequisiteFeatureFlagId'], 4)
-                    log.warn('prerequisite flag %s not found' % pre_flag_key)
+                    log.warn('FFC Python SDK: prerequisite flag %s not found' % pre_flag_key)
                     is_match_prerequisite = False
                     break
 
@@ -137,36 +140,44 @@ class Evaluator:
     def _match_targeted_user_variation(self, flag: dict, user: FFCUser) -> Tuple[bool, Optional[EvalDetail]]:
         for target in flag['targetIndividuals']:
             if any(individual['keyId'] == user.get('KeyId') for individual in target['individuals']):
-                return bool(flag['exptIncludeAllRules']), EvalDetail(target['valueOption']['localId'],
-                                                                     __REASON_TARGET_MATCH__,
-                                                                     target['valueOption']['variationValue'],
-                                                                     flag['ff']['keyName'],
-                                                                     flag['ff']['name'])
+                return self._is_send_to_expt_for_targeted_user_variation(flag['exptIncludeAllRules']), EvalDetail(target['valueOption']['localId'],
+                                                                                                                  __REASON_TARGET_MATCH__,
+                                                                                                                  target['valueOption']['variationValue'],
+                                                                                                                  flag['ff']['keyName'],
+                                                                                                                  flag['ff']['name'])
         return False, None
 
     # return the value of matched rule
     def _match_condition_user_variation(self, flag: dict, user: FFCUser) -> Tuple[bool, Optional[EvalDetail]]:
         for rule in flag['fftuwmtr']:
-            all_match = False
-            for clause in rule['ruleJsonContent']:
-                if not self._process_clause(user, clause):
-                    all_match = False
-                    break
-                all_match = True
-            if all_match:
-                return bool(rule['isIncludedInExpt']), self._get_rollout_variation_option(rule['valueOptionsVariationRuleValues'],
-                                                                                          user,
-                                                                                          __REASON_RULE_MATCH__,
-                                                                                          flag['ff']['keyName'], flag['ff']['name'])
+            if self._match_any_rule(user, rule):
+                return self._get_rollout_variation_option(rule['valueOptionsVariationRuleValues'],
+                                                          user,
+                                                          __REASON_RULE_MATCH__,
+                                                          flag['exptIncludeAllRules'],
+                                                          rule['isIncludedInExpt'],
+                                                          flag['ff']['keyName'],
+                                                          flag['ff']['name'])
         return False, None
 
     # get value from default rule
     def _match_default_user_variation(self, flag: dict, user: FFCUser) -> Tuple[bool, Optional[EvalDetail]]:
-        return bool(flag['ff']['isDefaultRulePercentageRolloutsIncludedInExpt']), self._get_rollout_variation_option(flag['ff']['defaultRulePercentageRollouts'],
-                                                                                                                     user,
-                                                                                                                     __REASON_FALLTHROUGH__,
-                                                                                                                     flag['ff']['keyName'],
-                                                                                                                     flag['ff']['name'])
+        return self._get_rollout_variation_option(flag['ff']['defaultRulePercentageRollouts'],
+                                                  user,
+                                                  __REASON_FALLTHROUGH__,
+                                                  flag['exptIncludeAllRules'],
+                                                  flag['ff']['isDefaultRulePercentageRolloutsIncludedInExpt'],
+                                                  flag['ff']['keyName'],
+                                                  flag['ff']['name'])
+
+    def _match_any_rule(self, user: FFCUser, rule: dict) -> bool:
+        all_match = False
+        for clause in rule['ruleJsonContent']:
+            if not self._process_clause(user, clause):
+                all_match = False
+                break
+            all_match = True
+        return all_match
 
     def _process_clause(self, user: FFCUser, clause: dict) -> bool:
         op = clause['operation']
@@ -264,15 +275,18 @@ class Evaluator:
         return pv and cv and re.search(str(cv), str(pv), flags=re.I)
 
     def _in_segment(self, user: FFCUser, clause: dict) -> bool:
-        def is_match_user(user_key, segment: dict):
-            if segment:
-                return user_key not in segment['excluded'] and user_key in segment['included']
-            return False
-
-        pv = user.get('KeyId')
+        def is_match_user(user: FFCUser, segment: dict) -> bool:
+            if not user or not segment:
+                return False
+            user_key = user.get('KeyId')
+            if user_key in segment['excluded']:
+                return False
+            if user_key in segment['included']:
+                return True
+            return any(self._match_any_rule(user, rule) for rule in segment.get('rules', []))
         try:
             cv = json.loads(clause['value'])
-            return pv and cv and any(is_match_user(pv, self.__segment_getter(sgid)) for sgid in cv)
+            return cv and any(is_match_user(user, self.__segment_getter(sgid)) for sgid in cv)
         except:
             return False
 
@@ -280,14 +294,45 @@ class Evaluator:
                                       rollouts: dict,
                                       user: FFCUser,
                                       reason: str,
+                                      expt_include_all_rules: bool,
+                                      rule_inclued_in_expt: bool,
                                       key_name: str,
-                                      name: str) -> EvalDetail:
+                                      name: str) -> Tuple[bool, Optional[EvalDetail]]:
 
+        user_key = user.get('KeyId')
         for rollout in rollouts:
-            if VariationSplittingAlgorithm(user.get('KeyId'), rollout['rolloutPercentage']).is_key_belongs_to_percentage():
-                return EvalDetail(rollout['valueOption']['localId'],
-                                  reason,
-                                  rollout['valueOption']['variationValue'],
-                                  key_name,
-                                  name)
-        return None
+            if VariationSplittingAlgorithm(user_key, rollout['rolloutPercentage']).is_key_belongs_to_percentage():
+                send_to_expt = self._is_send_to_expt(user_key, rollout, expt_include_all_rules, rule_inclued_in_expt)
+                return send_to_expt, EvalDetail(rollout['valueOption']['localId'],
+                                                reason,
+                                                rollout['valueOption']['variationValue'],
+                                                key_name,
+                                                name)
+        return False, None
+
+    def _is_send_to_expt_for_targeted_user_variation(self, expt_include_all_rules: bool) -> bool:
+        return expt_include_all_rules is None or expt_include_all_rules
+
+    def _is_send_to_expt(self,
+                         user_key: str,
+                         rollout: dict,
+                         expt_include_all_rules: bool,
+                         rule_inclued_in_expt: bool) -> bool:
+        if expt_include_all_rules is None:
+            return True
+        if rule_inclued_in_expt is None or rollout['exptRollout'] is None:
+            return True
+        if not rule_inclued_in_expt:
+            return False
+
+        send_to_expt_percentage = rollout['exptRollout']
+        splitting_percentage = rollout['rolloutPercentage'][1] - rollout['rolloutPercentage'][0]
+
+        if send_to_expt_percentage == 0 or splitting_percentage == 0:
+            return False
+
+        upper_bound = send_to_expt_percentage / splitting_percentage
+        if upper_bound > 1:
+            upper_bound = 1
+        new_user_key = base64.b64encode(user_key.encode()).decode()
+        return VariationSplittingAlgorithm(new_user_key, [0, upper_bound]).is_key_belongs_to_percentage()

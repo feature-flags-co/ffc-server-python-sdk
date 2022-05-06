@@ -85,7 +85,7 @@ class DefaultSender(Sender):
                     resp = response.data.decode('utf-8')
                     return resp if fetch_response else None
             except Exception as e:
-                log.exception('sending error: %s' % str(e))
+                log.exception('FFC Python SDK: sending error: %s' % str(e))
         return None
 
     def stop(self):

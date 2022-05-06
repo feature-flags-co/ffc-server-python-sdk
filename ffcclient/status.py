@@ -34,7 +34,7 @@ class DataUpdateStatusProviderIml(DataUpdateStatusProvider):
         return True
 
     def __handle_exception(self, error: Exception, error_info: ErrorInfo):
-        log.exception('Data Storage error: %s, UpdateProcessor will attempt to receive the data' % str(error))
+        log.exception('FFC Python SDK: Data Storage error: %s, UpdateProcessor will attempt to receive the data' % str(error))
         self.update_state(StateType.INTERRUPTED, error_info)
 
     @property
@@ -67,7 +67,7 @@ class DataUpdateStatusProviderIml(DataUpdateStatusProvider):
                 # wakes up all threads waiting for the ok state to check the new state
                 self.__lock.notify_all()
 
-    def wait_for_OKState(self, timeoutInSeconds: float) -> bool:
+    def wait_for_OKState(self, timeoutInSeconds: float = 0) -> bool:
         timeout = 0 if timeoutInSeconds is None or timeoutInSeconds <= 0 else timeoutInSeconds
         deadline = time() + timeout
         with self.__lock:
