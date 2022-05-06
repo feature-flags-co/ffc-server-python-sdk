@@ -17,7 +17,7 @@ class RepeatableTaskSchedule(Thread):
         self.__ready = Event()
 
     def stop(self):
-        log.info('repeatable task schedule is stopping...')
+        log.debug('repeatable task schedule is stopping...')
         schedule.clear()
         self.__ready.set()
 

@@ -1,6 +1,6 @@
 import json
 from abc import ABC, abstractmethod
-from typing import Any, Iterable, Optional
+from typing import Any, Callable, Iterable, Mapping, Optional
 
 from ffcclient.utils import is_numeric
 
@@ -112,8 +112,13 @@ class EvalDetail(Jsonfy):
                           __FLAG_KEY_UNKNOWN__ if not key_name else key_name,
                           __FLAG_NAME_UNKNOWN__)
 
-    def is_default_value(self):
+    @property
+    def is_default_value(self) -> bool:
         return self._id == __NO_VARIATION__
+
+    @property
+    def is_success(self) -> bool:
+        return self._id >= 0
 
     @property
     def id(self) -> int:
@@ -143,6 +148,9 @@ class EvalDetail(Jsonfy):
         json_dict['keyName'] = self.key_name
         json_dict['name'] = self.name
         return json_dict
+
+    def to_flag_state(self):
+        return FlagState(self.is_success, self._reason, self)
 
 
 class BasicFlagState:
@@ -175,18 +183,27 @@ class FlagState(BasicFlagState, Jsonfy):
 
 
 class AllFlagStates(BasicFlagState, Jsonfy):
-    def __init__(self, success: bool, message: str, data: Iterable[EvalDetail]):
+    def __init__(self, success: bool, message: str,
+                 data: Mapping[EvalDetail, 'FFCEvent'],
+                 event_handler: Callable[['FFCEvent'], None]):
         super().__init__(success, message)
-        self._data = data
+        self._data = dict((ed.key_name, (ed, ffc_event)) for ed, ffc_event in data.items()) if data else {}
+        self._event_handler = event_handler
 
     @property
-    def data(self) -> Iterable[EvalDetail]:
-        return self._data
+    def key_names(self) -> Iterable[str]:
+        return self._data.keys()
+
+    def get(self, key_name: str) -> EvalDetail:
+        ed, ffc_event = self._data.get(key_name, (None, False))
+        if self._event_handler and ffc_event:
+            self._event_handler(ffc_event)
+        return ed
 
     def to_json_dict(self) -> dict:
         return {'success': self.success,
                 'message': self.message,
-                'data': [ed.to_json_dict() for ed in self._data] if self._data else []}
+                'data': [ed.to_json_dict() for ed, _ in self._data.values()] if self._data else []}
 
 
 class FFCEvent(Jsonfy, ABC):

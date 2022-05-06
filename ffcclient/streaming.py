@@ -68,7 +68,7 @@ class Streaming(Thread, UpdateProcessor):
         self.__pool = ThreadPoolExecutor(max_workers=1)
         self.__semaphore = BoundedSemaphore(value=20)
         schedule.every(config.websocket.ping_interval).seconds.do(self._on_ping)
-        log.info('Streaming ping thread is registered in schedule')
+        log.debug('Streaming ping thread is registered in schedule')
 
     def _init_wsapp(self):
 
@@ -89,7 +89,7 @@ class Streaming(Thread, UpdateProcessor):
                                               on_error=self._on_error)
         # set the conn time
         self.__strategy.set_good_run()
-        log.info('Streaming WebSocket is connecting...')
+        log.debug('Streaming WebSocket is connecting...')
 
     def run(self):
         while (self.__running):
@@ -110,13 +110,13 @@ class Streaming(Thread, UpdateProcessor):
                     sleep(delay)
             except Exception as e:
                 msg = str(e)
-                log.exception('unexpected error: %s', msg)
+                log.exception('FFC Python SDK: Streaming unexpected error: %s', msg)
                 self.__storage.update_state(StateType.INTERRUPTED, ErrorInfo(UNKNOWN_ERROR, msg))
             finally:
                 # clear the last connection info
                 self.__wsapp = None
                 self.__close_status = None
-        log.info('Streaming WebSocket process is over')
+        log.debug('Streaming WebSocket process is over')
         if not self.__ready.is_set():
             # if an no-reconn error occurs in the first attempt, set ready not to wait
             self.__ready.set()
@@ -141,22 +141,22 @@ class Streaming(Thread, UpdateProcessor):
                 state_type = StateType.INTERRUPTED if self.__close_status.is_reconn else StateType.OFF
             if self.__close_status.is_update_state:
                 self.__storage.update_state(state_type, self.__close_status.error_info)
-            log.info('Streaming WebSocket close reason: %s' % self.__close_status.close_msg)
+            log.debug('Streaming WebSocket close reason: %s' % self.__close_status.close_msg)
         elif close_code == WS_INVALID_REQUEST_CLOSE:
             # close by server with code 4003
             self.__running = False
             self.__storage.update_state(StateType.OFF, ErrorInfo(REQUEST_INVALID_ERROR, close_msg))
-            log.info('Streaming WebSocket close reason: %s' % close_msg)
+            log.debug('Streaming WebSocket close reason: %s' % close_msg)
         elif close_code:
             # close by server with an unknown close code, restart immediately
             msg = close_msg if close_msg else 'unexpected close'
             self.__storage.update_state(StateType.INTERRUPTED, ErrorInfo(UNKNOWN_CLOSE_CODE, msg))
-            log.info('Streaming WebSocket close reason: %s' % msg)
+            log.debug('Streaming WebSocket close reason: %s' % msg)
 
     def _on_error(self, wsapp: websocket.WebSocketApp, error):
         is_reconn, is_ws_close, error_type = get_error_details(error)
         error_info = ErrorInfo(error_type, str(error))
-        log.warn('Streaming WebSocket Failure, type=%s, msg=%s' % (error_type, str(error)))
+        log.warn('FFC Python SDK: Streaming WebSocket Failure, type=%s, msg=%s' % (error_type, str(error)))
         if is_ws_close:
             self.__close_status = CloseStatus(close_status_code=WS_GOING_AWAY_CLOSE,
                                               close_msg=WS_GOING_AWAY_CLOSE_REASON.decode(),
@@ -170,7 +170,7 @@ class Streaming(Thread, UpdateProcessor):
             self.__storage.update_state(state_type, ErrorInfo(error_type, str(error)))
 
     def _on_open(self, wsapp: websocket.WebSocketApp):
-        log.info('Asking Data updating on WebSocket')
+        log.debug('Asking Data updating on WebSocket')
         version = self.__storage.latest_version if self.__storage.initialized else 0
         data_sync_msg = {'messageType': 'data-sync', 'data': {'timestamp': version}}
         json_str = json.dumps(data_sync_msg)
@@ -208,7 +208,7 @@ class Streaming(Thread, UpdateProcessor):
                 # set ready when the initialization is complete.
                 self.__ready.set()
             self.__storage.update_state(StateType.OK, None)
-            log.info("processing data is well done")
+            log.debug("processing data is well done")
         else:
             if self.__wsapp:
                 # state already updated in init or upsert, just reconn
@@ -226,7 +226,7 @@ class Streaming(Thread, UpdateProcessor):
             all_data = json.loads(msg)
             if valide_all_data(all_data):
                 self.__semaphore.acquire()
-                log.info('Streaming WebSocket is processing data')
+                log.debug('Streaming WebSocket is processing data')
                 self.__pool.submit(self._on_process_data,
                                    (all_data['data'])).add_done_callback(lambda x: self.__semaphore.release())
         except Exception as e:
@@ -239,7 +239,7 @@ class Streaming(Thread, UpdateProcessor):
                 wsapp.close(status=WS_GOING_AWAY_CLOSE, reason=WS_GOING_AWAY_CLOSE_REASON.decode())
 
     def stop(self):
-        log.info('Streaming is stopping...')
+        log.info('FFC Python SDK: Streaming is stopping...')
         if self.__running and self.__wsapp:
             self.__close_status = CloseStatus(close_status_code=WS_NORMAL_CLOSE,
                                               close_msg=WS_NORMAL_CLOSE_REASON.decode(),
@@ -247,7 +247,7 @@ class Streaming(Thread, UpdateProcessor):
                                               is_update_state=True,
                                               error_info=None)
             self.__wsapp.close(status=WS_NORMAL_CLOSE, reason=WS_NORMAL_CLOSE_REASON)
-        log.info('Streaming thread pool is stopping...')
+        log.debug('Streaming thread pool is stopping...')
         self.__pool.shutdown(wait=True)
 
     @property

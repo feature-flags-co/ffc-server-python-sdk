@@ -22,8 +22,8 @@ class DefaultEventProcessor(EventProcessor):
         self.__lock = threading.Lock()
         EventDispatcher(config, self.__inbox).start()
         schedule.every(config.events_flush_interval).seconds.do(self.flush)
-        log.info('event processor flush thread is registered in schedule')
-        log.info('event processor is ready')
+        log.debug('event processor flush thread is registered in schedule')
+        log.debug('event processor is ready')
 
     def __put_message_to_inbox(self, message: EventMessage) -> bool:
         try:
@@ -37,7 +37,7 @@ class DefaultEventProcessor(EventProcessor):
             #  if it reaches here, it means the application is probably doing tons of flag
             #  evaluations across many threads-- so if we wait for a space in the inbox, we risk a very serious slowdown
             #  of the app. To avoid that, we'll just drop the event or you can increase the capacity of inbox
-            log.warn('Events are being produced faster than they can be processed; some events will be dropped')
+            log.warn('FFC Python SDK: Events are being produced faster than they can be processed; some events will be dropped')
             return False
 
     def __put_message_async(self, type: MessageType, event: FFCEvent):
@@ -65,7 +65,7 @@ class DefaultEventProcessor(EventProcessor):
     def stop(self):
         with self.__lock:
             if not self.__closed:
-                log.info('event processor is stopping')
+                log.info('FFC Python SDK: event processor is stopping')
                 self.__closed = True
                 self.flush()
                 self.__put_message_and_wait_terminate(MessageType.SHUTDOWN, None)
@@ -87,7 +87,7 @@ class EventDispatcher(threading.Thread):
         self.__permits = threading.BoundedSemaphore(value=self.__MAX_FLUSH_WORKERS_NUMBER)
 
     def run(self):
-        log.info('event dispatcher is working...')
+        log.debug('event dispatcher is working...')
         while True:
             try:
                 msgs = self.__drain_inbox(size=self.__BATCH_SIZE)
@@ -103,9 +103,9 @@ class EventDispatcher(threading.Thread):
                             return  # exit the loop
                         msg.completed()
                     except Exception as e1:
-                        log.exception('unexpected error in event dispatcher: %s' % str(e1))
+                        log.exception('FFC Python SDK: unexpected error in event dispatcher: %s' % str(e1))
             except Exception as e2:
-                log.exception('unexpected error in event dispatcher: %s' % str(e2))
+                log.exception('FFC Python SDK: unexpected error in event dispatcher: %s' % str(e2))
 
     def __drain_inbox(self, size=50) -> Iterable[EventMessage]:
         msg = self.__inbox.get(block=True, timeout=None)
@@ -138,14 +138,14 @@ class EventDispatcher(threading.Thread):
     def __shutdown(self):
         if not self.__closed:
             try:
-                log.info('event dispatcher is cleaning up thread and conn pool')
+                log.debug('event dispatcher is cleaning up thread and conn pool')
                 self.__closed = True
                 log.debug('flush payload pool is stopping...')
                 self.__pool.shutdown(wait=True)
                 log.debug('event sender is stopping...')
                 self.__sender.stop()
             except Exception as e:
-                log.exception('unexpected error when closing event dispatcher: %s' % str(e))
+                log.exception('FFC Python SDK: unexpected error when closing event dispatcher: %s' % str(e))
 
 
 class FlushPayloadExecutor:
@@ -158,10 +158,10 @@ class FlushPayloadExecutor:
         try:
             json_payload = [event.to_json_dict() for event in self.__payload]
             json_str = json.dumps(json_payload)
-            log.trace(json_str)
+            log.debug(json_str)
             self.__sender.postJson(self.__config.events_url, json_str, fetch_response=False)
         except Exception as e:
-            log.error('unexpected error in sending payload: %s' % str(e))
+            log.exception('FFC Python SDK: unexpected error in sending payload: %s' % str(e))
 
 
 class NullEventProcessor(EventProcessor):

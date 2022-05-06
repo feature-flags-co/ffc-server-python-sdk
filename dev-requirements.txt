@@ -1,7 +1,9 @@
-certifi
-urllib3
-schedule
-websocket-client
+certifi>=2018.4.16
+urllib3>=1.22.0
+schedule >= 1.0.0
+websocket-client>=1.0.0
 flake8
 pytest
 autopep8
+build
+twine
