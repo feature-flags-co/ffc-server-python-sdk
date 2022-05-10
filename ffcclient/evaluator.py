@@ -138,13 +138,17 @@ class Evaluator:
 
     # return the value of target user
     def _match_targeted_user_variation(self, flag: dict, user: FFCUser) -> Tuple[bool, Optional[EvalDetail]]:
+
+        def is_send_to_expt(expt_include_all_rules: bool) -> bool:
+            return expt_include_all_rules is None or expt_include_all_rules
+
         for target in flag['targetIndividuals']:
             if any(individual['keyId'] == user.get('KeyId') for individual in target['individuals']):
-                return self._is_send_to_expt_for_targeted_user_variation(flag['exptIncludeAllRules']), EvalDetail(target['valueOption']['localId'],
-                                                                                                                  __REASON_TARGET_MATCH__,
-                                                                                                                  target['valueOption']['variationValue'],
-                                                                                                                  flag['ff']['keyName'],
-                                                                                                                  flag['ff']['name'])
+                return is_send_to_expt(flag['exptIncludeAllRules']), EvalDetail(target['valueOption']['localId'],
+                                                                                __REASON_TARGET_MATCH__,
+                                                                                target['valueOption']['variationValue'],
+                                                                                flag['ff']['keyName'],
+                                                                                flag['ff']['name'])
         return False, None
 
     # return the value of matched rule
@@ -299,40 +303,36 @@ class Evaluator:
                                       key_name: str,
                                       name: str) -> Tuple[bool, Optional[EvalDetail]]:
 
+        def is_send_to_expt(user_key: str,
+                            rollout: dict,
+                            expt_include_all_rules: bool,
+                            rule_inclued_in_expt: bool) -> bool:
+            if expt_include_all_rules is None:
+                return True
+            if rule_inclued_in_expt is None or rollout['exptRollout'] is None:
+                return True
+            if not rule_inclued_in_expt:
+                return False
+
+            send_to_expt_percentage = rollout['exptRollout']
+            splitting_percentage = rollout['rolloutPercentage'][1] - rollout['rolloutPercentage'][0]
+
+            if send_to_expt_percentage == 0 or splitting_percentage == 0:
+                return False
+
+            upper_bound = send_to_expt_percentage / splitting_percentage
+            if upper_bound > 1:
+                upper_bound = 1
+            new_user_key = base64.b64encode(user_key.encode()).decode()
+            return VariationSplittingAlgorithm(new_user_key, [0, upper_bound]).is_key_belongs_to_percentage()
+
         user_key = user.get('KeyId')
         for rollout in rollouts:
             if VariationSplittingAlgorithm(user_key, rollout['rolloutPercentage']).is_key_belongs_to_percentage():
-                send_to_expt = self._is_send_to_expt(user_key, rollout, expt_include_all_rules, rule_inclued_in_expt)
+                send_to_expt = is_send_to_expt(user_key, rollout, expt_include_all_rules, rule_inclued_in_expt)
                 return send_to_expt, EvalDetail(rollout['valueOption']['localId'],
                                                 reason,
                                                 rollout['valueOption']['variationValue'],
                                                 key_name,
                                                 name)
         return False, None
-
-    def _is_send_to_expt_for_targeted_user_variation(self, expt_include_all_rules: bool) -> bool:
-        return expt_include_all_rules is None or expt_include_all_rules
-
-    def _is_send_to_expt(self,
-                         user_key: str,
-                         rollout: dict,
-                         expt_include_all_rules: bool,
-                         rule_inclued_in_expt: bool) -> bool:
-        if expt_include_all_rules is None:
-            return True
-        if rule_inclued_in_expt is None or rollout['exptRollout'] is None:
-            return True
-        if not rule_inclued_in_expt:
-            return False
-
-        send_to_expt_percentage = rollout['exptRollout']
-        splitting_percentage = rollout['rolloutPercentage'][1] - rollout['rolloutPercentage'][0]
-
-        if send_to_expt_percentage == 0 or splitting_percentage == 0:
-            return False
-
-        upper_bound = send_to_expt_percentage / splitting_percentage
-        if upper_bound > 1:
-            upper_bound = 1
-        new_user_key = base64.b64encode(user_key.encode()).decode()
-        return VariationSplittingAlgorithm(new_user_key, [0, upper_bound]).is_key_belongs_to_percentage()

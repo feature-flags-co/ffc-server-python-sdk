@@ -20,9 +20,44 @@ from ffcclient.utils.repeatable_task import RepeatableTaskSchedule
 
 
 class FFCClient:
+    """The featureflag.co Python SDK client object.
+
+    Applications SHOULD instantiate a single instance for the lifetime of the application.
+    In the case where an application needs to evaluate feature flags from different environments,
+    you may create multiple clients, but they should still be retained for the lifetime of the application
+    rather than created per request or per thread.
+
+    Client instances are thread-safe.
+    """
 
     def __init__(self, config: Config, start_wait: int = 15):
+        """
+        Creates a new client to connect to featureflag.co with a specified configuration.
 
+        Unless client is configured in offline mode, this client try to connect to featureflag.co as soon as the constructor is called.
+
+        The constructor will return when it successfully connects, or when the timeout (default: 15 seconds) expires, whichever comes first.
+        ```
+        client = FFCClient(Config(env_secret), start_wait=15)
+
+        if client.initialize:
+            # your code
+        ```
+
+        If it has not succeeded in connecting when the timeout elapses, you will receive the client in an uninitialized state where feature flags will return default values;
+        it will still continue trying to connect in the background unless there has been an unrecoverable error or you close the client by :func:`stop`.
+        You can detect whether initialization has succeeded by :func:`initialize`.
+
+        If you prefer to have the constructor return immediately, and then wait for initialization to finish at some other point,
+        you can use :func:`update_status_provider` as follows:
+        ```
+        client = FFCClient(Config(env_secret), start_wait=0)
+        if client._update_status_provider.wait_for_OKState():
+            # your code
+        ```
+        :param config: the client configuration
+        :param start_wait: the max time to wait for initialization
+        """
         check_uwsgi()
 
         self._config = config
@@ -58,6 +93,8 @@ class FFCClient:
                 log.info('FFC Python SDK: Python SDK Client initialization completed')
             else:
                 log.warning('FFC Python SDK: Python SDK Client was not successfully initialized')
+        else:
+            log.info('FFC Python SDK: Python SDK Client initialization completed')
 
     def _build_event_processor(self, config: Config):
         if config.event_processor_imp:
@@ -83,6 +120,12 @@ class FFCClient:
 
     @property
     def initialize(self) -> bool:
+        """Returns true if the client has successfully connected to featureflag.co.
+
+        If this returns false, it means that the client has not yet successfully connected to featureflag.co.
+        It might still be in the process of starting up, or it might be attempting to reconnect after an
+        unsuccessful attempt, or it might have received an unrecoverable error and given up.
+        """
         return self._update_processor.initialized
 
     @property
@@ -90,12 +133,24 @@ class FFCClient:
         return self._update_status_provider
 
     def stop(self):
+        """Releases all threads and network connections used by SDK.
+
+        Do not attempt to use the client after calling this method.
+        """
         log.info("FFC Python SDK: Python SDK client is closing...")
         self._update_processor.stop()
         self._event_processor.stop()
         self._scheduler.stop()
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, exc_traceback):
+        self.stop()
+
     def is_offline(self) -> bool:
+        """Returns true if the client is in offline mode.
+        """
         return self._config.is_offline
 
     def _get_flag_internal(self, key: str) -> Optional[dict]:
@@ -126,7 +181,7 @@ class FFCClient:
 
             ffc_event = FlagEvent(ffc_user)
             ed = self._evaluator.evaluate(flag, ffc_user, ffc_event)
-            self._event_processor.send_event(ffc_event)
+            self._event_handler(ffc_event)
             return ed
 
         except Exception as e:
@@ -134,12 +189,44 @@ class FFCClient:
             return EvalDetail.error(REASON_ERROR, default_value, key)
 
     def variation(self, key: str, user: dict, default: Any = None) -> Any:
-        return self._evaluate_internal(key, user, default).variation()
+        """Return the variation of a feature flag for a given user.
+
+        This method will send an event back to featureflag.co immediately if no error occurs.
+
+        :param key: the unique key for the feature flag
+        :param user:  the attributes of the user
+        :param default: the default value of the flag, to be used if the return value is not available from featureflag.co
+        :return: one of the flag's values, or the default value
+        """
+        return self._evaluate_internal(key, user, default).variation
 
     def variation_detail(self, key: str, user: dict, default: Any = None) -> FlagState:
-        return self._evaluate_internal(key, user, default).to_flag_state()
+        """"Return the variation of a feature flag for a given user, but also provides additional information
+         about how this value was calculated, in the form of an :class:`ffcclient.common_types.EvalDetail` object.
+
+        This method will send an event back to featureflag.co immediately if no error occurs.
+
+        :param key: the unique key for the feature flag
+        :param user: the attributes of the user
+        :param default: the default value of the flag, to be used if the return value is not available from featureflag.co
+        :return: an :class:`ffcclient.common_types.FlagState` object
+        """
+        return self._evaluate_internal(key, user, default).to_flag_state
 
     def is_enabled(self, key: str, user: dict) -> bool:
+        """
+        Return the bool variation of a feature flag for a given user.
+
+        True values are 'y', 'yes', 't', 'true', 'on', and '1'; return false if
+        'val' is anything else.
+
+        This method will send an event back to featureflag.co immediately if no error occurs.
+
+        :param key: the unique key for the feature flag
+        :param user: the attributes of the user
+        :return: True or False
+
+        """
         try:
             value = self.variation(key, user, 'off')
             return strtobool(str(value))
@@ -147,6 +234,15 @@ class FFCClient:
             return False
 
     def get_all_latest_flag_variations(self, user: dict) -> AllFlagStates:
+        """
+        Returns an object that encapsulates the state of all feature flags for a given user
+
+        This method does not send events back to featureflag.co immediately util calling :func:`ffcclient.common_types.AllFlagStates.get()`
+
+        :param user: the attributes of the user
+        :return: an :class:`ffcclient.common_types.AllFlagStates` object (will never be None; its `success` property will be False
+         normally if SDK has not been initialized or the user invalid)
+        """
         try:
             all_flag_details = {}
             message = None
@@ -182,6 +278,12 @@ class FFCClient:
         return AllFlagStates(success, message, all_flag_details, self._event_handler)
 
     def is_flag_known(self, key: str) -> bool:
+        """
+        Checks if the given flag exists in the your environment
+
+        :param key: The key name of the flag to check
+        :return: True if the flag exists
+        """
         try:
             if not self.initialize:
                 log.warn('FFC Python SDK: isFlagKnown called before Java SDK client initialized for feature flag')
@@ -192,29 +294,61 @@ class FFCClient:
         return False
 
     def flush(self):
+        """Flushes all pending events.
+
+        Normally, batches of events are delivered in the background at intervals determined by the
+        `events_flush_interval` property of :class:`ffcclient.config.Config`. Calling `flush()`
+        schedules the next event delivery to be as soon as possible; however, the delivery still
+        happens asynchronously on a thread, so this method will return immediately.
+        """
         self._event_processor.flush()
 
     def track_metric(self, user: dict, event_name: str, metric_value: float = 1.0):
-        if not user or not event_name or metric_value <= 0:
-            log.warn('FFC Python SDK: event/user/metric invalid')
+        """Tracks that a user performed a metric event.
+
+        featureflag.co automatically tracks pageviews and clicks that are specified in the dashboard UI.
+        This can be used to track custom metric.
+
+        :param user: the attributes of the user
+        :param event_name: the name of the event, which may correspond to a goal in A/B tests
+        :param metric_value: a numeric value used by the experiment, default value is 1.0
+        """
+        if not event_name or metric_value <= 0:
+            log.warn('FFC Python SDK: event/metric invalid')
+            return
+        try:
+            ffc_user = FFCUser.from_dict(user)
+        except ValueError:
+            log.warn('FFC Python SDK: user invalid')
             return
         try:
             ffc_user = FFCUser.from_dict(user)
             metric_event = MetricEvent(ffc_user).add(Metric(event_name, metric_value))
-            self._event_processor.send_event(metric_event)
+            self._event_handler(metric_event)
         except Exception as e:
             log.exception('FFC Python SDK: unexpected error in track_metric: %s' % str(e))
 
     def track_metrics(self, user: dict, metrics: Mapping[str, float]):
-        if not user or not metrics:
-            log.warn('FFC Python SDK: user/metrics invalid')
+        """Tracks that a user performed a map of metric events.
+
+        if any event_name or metric_value is invalid, that metric will be ignored
+
+        :param user: the attributes of the user
+        :param metrics: the pairs of event_name and metric_value
+        """
+        if not isinstance(metrics, dict):
+            log.warn('FFC Python SDK: metrics invalid')
             return
         try:
             ffc_user = FFCUser.from_dict(user)
+        except ValueError:
+            log.warn('FFC Python SDK: user invalid')
+            return
+        try:
             metric_event = MetricEvent(ffc_user)
             for event_name, metric_value in metrics.items():
                 if event_name and metric_value > 0:
                     metric_event.add(Metric(event_name, metric_value))
-            self._event_processor.send_event(metric_event)
+            self._event_handler(metric_event)
         except Exception as e:
             log.exception('FFC Python SDK: unexpected error in track_metrics: %s' % str(e))

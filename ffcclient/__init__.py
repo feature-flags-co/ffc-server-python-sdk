@@ -15,9 +15,12 @@ def get() -> FFCClient:
     """Returns the singleton Python SDK client instance, using the current configuration.
 
     To use the SDK as a singleton, first make sure you have called :func:`ffcclient.set_config()`
-    at startup time. Then ``get()`` will return the same shared :class:`ffcclient.client.FFCClient`
+    at startup time. Then :func:`ffcclient.get()` will return the same shared :class:`ffcclient.client.FFCClient`
     instance each time. The client will be initialized if it runs first time.
-
+    ```
+    set_config(Config(env_secret))
+    client = get()
+    ```
     If you need to create multiple client instances with different environments, instead of this
     singleton approach you can call directly the :class:`ffcclient.client.FFCClient` constructor.
     """
