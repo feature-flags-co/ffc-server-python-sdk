@@ -104,15 +104,25 @@ You may also define custom properties with arbitrary names and values.
 
 ```python
 if client.initialize:
-    user = {'key': user_key, 'name': user_name}
+    user = {'key': user_key, 'name': user_name, 'age': age}
     flag_value = client.variation(flag_key, user)
     # your if/else code according to flag value
 
 ```
 If evaluation called before SDK client initialized or you set the wrong flag key or user for the evaluation, SDK will return 
-the default value you set. The `FlagState` will explain the details of the last evaluation including error raison.
+the default value you set. The `ffcclient.common_types.FlagState` will explain the details of the last evaluation including error raison.
 
-SDK support the String, Boolean, and Number as the return type of flag values, see pydoc for more details.
+If you would like to get variations of all feature flags in a special environment, you can use `ffcclient.client.FFCClient.get_all_latest_flag_variations`, SDK will return `ffcclient.common_types.AllFlagStates`, that explain the details of all feature flags
+```python
+if client.initialize:
+    user = {'key': user_key, 'name': user_name}
+    all_flag_values = client.get_all_latest_flag_variations(user)
+    ed = all_flag_values.get(flag_key)
+    flag_value = ed.variation
+    # your if/else code according to flag value
+
+    
+```
 
 ### Experiments (A/B/n Testing)
 We support automatic experiments for pageviews and clicks, you just need to set your experiment on our SaaS platform, then you should be able to see the result in near real time after the experiment is started.

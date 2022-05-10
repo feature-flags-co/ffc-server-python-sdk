@@ -92,12 +92,24 @@ class FFCUser(Jsonfy):
 
 
 class EvalDetail(Jsonfy):
+    """
+    The object combining the result of a flag evaluation with information about how it was calculated.
+    """
+
     def __init__(self,
                  id: int,
                  reason: str,
                  variation: Any,
                  key_name: Optional[str] = None,
                  name: Optional[str] = None):
+        """Constructs an instance.
+
+        :param id: index within the flag's list of variations
+        :param reason: main factor that influenced the flag evaluation value
+        :param variation: result of the flag evaluation
+        :param key_name: key name of the flag
+        :param name: name of the flag
+        """
         self._id = id
         self._reason = reason
         self._variation = variation
@@ -106,6 +118,13 @@ class EvalDetail(Jsonfy):
 
     @staticmethod
     def error(reason: str, variation: Any = None, key_name: Optional[str] = None) -> 'EvalDetail':
+        """Constructs an instance representing an error
+
+        :param reason: main factor that influenced the flag evaluation value
+        :param variation: result of the flag evaluation
+        :param key_name: key name of the flag
+        :return: an EvalDetail object
+        """
         return EvalDetail(__NO_VARIATION__,
                           reason,
                           __FLAG_VALUE_UNKNOWN__ if not variation else variation,
@@ -114,30 +133,44 @@ class EvalDetail(Jsonfy):
 
     @property
     def is_default_value(self) -> bool:
+        """Returns true if the value is the default value
+        """
         return self._id == __NO_VARIATION__
 
     @property
     def is_success(self) -> bool:
+        """Returns true if last evaluation was successful
+        """
         return self._id >= 0
 
     @property
     def id(self) -> int:
+        """The index of the returned value within the flag's list of variations
+        """
         return self._id
 
     @property
     def reason(self) -> str:
+        """A string describing the main factor that influenced the flag evaluation value.
+        """
         return self._reason
 
     @property
     def variation(self) -> Any:
+        """The result of the flag evaluation. This will be either one of the flag's variations or the default value
+        """
         return self._variation
 
     @property
     def key_name(self) -> Optional[str]:
+        """The flag key name
+        """
         return self._key_name
 
     @property
     def name(self) -> Optional[str]:
+        """The flag name
+        """
         return self._name
 
     def to_json_dict(self) -> dict:
@@ -149,31 +182,56 @@ class EvalDetail(Jsonfy):
         json_dict['name'] = self.name
         return json_dict
 
-    def to_flag_state(self):
+    @property
+    def to_flag_state(self) -> 'FlagState':
+        """Convert to FlagState object
+        """
         return FlagState(self.is_success, self._reason, self)
 
 
 class BasicFlagState:
+    """Abstract class representing flag state after feature flag evaluaion
+    """
+
     def __init__(self, success: bool, message: str):
+        """Constructs an instance.
+
+        :param success: True if successful
+        :param message: the state of last evaluation; the value is OK if successful
+        """
         self._success = success
         self._message = 'OK' if success else message
 
     @property
     def success(self) -> bool:
+        """Returns true if last evaluation was successful
+        """
         return self._success
 
     @property
     def message(self) -> str:
+        """Message representing the state of last evaluation; the value is OK if successful
+        """
         return self._message
 
 
 class FlagState(BasicFlagState, Jsonfy):
+    """The object representing representing flag state of a given feature flag after feature flag evaluaion
+    """
+
     def __init__(self, success: bool, message: str, data: EvalDetail):
+        """Constructs an instance.
+
+        :param success: True if successful
+        :param message: the state of last evaluation; the value is OK if successful
+        :param data: the result of a flag evaluation with information about how it was calculated
+        """
         super().__init__(success, message)
         self._data = data
 
     @property
     def data(self) -> EvalDetail:
+        """return the result of a flag evaluation with information about how it was calculated"""
         return self._data
 
     def to_json_dict(self) -> dict:
@@ -183,18 +241,37 @@ class FlagState(BasicFlagState, Jsonfy):
 
 
 class AllFlagStates(BasicFlagState, Jsonfy):
+    """ The object that encapsulates the state of all feature flags for a given user after feature flag evaluaion
+    """
+
     def __init__(self, success: bool, message: str,
                  data: Mapping[EvalDetail, 'FFCEvent'],
                  event_handler: Callable[['FFCEvent'], None]):
+        """Constructs an instance.
+
+        :param success: True if successful
+        :param message: the state of last evaluation; the value is OK if successful
+        :param data: a dictionary containing state of all feature flags and their events
+        :event_handler: callback function used to send events to featureflag.co
+        """
         super().__init__(success, message)
         self._data = dict((ed.key_name, (ed, ffc_event)) for ed, ffc_event in data.items()) if data else {}
         self._event_handler = event_handler
 
     @property
     def key_names(self) -> Iterable[str]:
+        """Return key names of all feature flag
+        """
         return self._data.keys()
 
     def get(self, key_name: str) -> EvalDetail:
+        """Return the state of a given feature flag
+
+        This method will send event to back to featureflag.co immediately
+
+        :param key_name: key name of the flag
+        :return: an :class:`ffcclient.common_types.FlagState` object
+        """
         ed, ffc_event = self._data.get(key_name, (None, False))
         if self._event_handler and ffc_event:
             self._event_handler(ffc_event)
