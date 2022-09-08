@@ -21,5 +21,5 @@ class VariationSplittingAlgorithm:
 
     def __percentage_of_key(self) -> float:
         digest = hashlib.md5(self.__key.encode(encoding='ascii')).digest()
-        magic_num = int.from_bytes(digest[:4], byteorder='big', signed=True)
+        magic_num = int.from_bytes(digest[:4], byteorder='little', signed=True)
         return abs(magic_num / __MIN_INT__)
