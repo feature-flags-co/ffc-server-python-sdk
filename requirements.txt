@@ -1,4 +1,5 @@
 certifi>=2018.4.16
 urllib3>=1.22.0
-schedule >= 1.0.0
+schedule>=1.0.0
 websocket-client>=1.0.0
+atomics>=1.0.2
