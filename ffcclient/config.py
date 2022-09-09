@@ -24,19 +24,15 @@ class WebSocketConfig:
 
     def __init__(self,
                  timeout: float = 10.0,
-                 ping_interval: float = 15.0,
-                 ping_timeout: float = 10.0,
-                 ping_payload: Optional[str] = 'ping',
+                 ping_interval: float = 10.0,
                  sslopt: Optional[dict] = None,
                  proxy_type: Optional[str] = None,
                  proxy_host: Optional[str] = None,
                  proxy_port: Optional[str] = None,
                  proxy_auth: Optional[Tuple[str, str]] = None):
-
-        self.__timeout = 10.0 if timeout is None or timeout <= 0 else min(timeout, 60.0)
-        self.__ping_interval = 30.0 if ping_interval is None or ping_interval <= 0 else min(ping_interval, 60.0)
-        self.__ping_timeout = 10.0 if ping_timeout is None or ping_timeout <= 0 else min(ping_timeout, 60.0)
-        self.__ping_payload = ping_payload
+        # a timeout is triggered if no connection response is received from the server after the timeout interval
+        self.__timeout = 10.0 if timeout is None or timeout <= 0 else min(timeout, 10.0)
+        self.__ping_interval = 10.0 if ping_interval is None or ping_interval <= 0 else min(ping_interval, 10.0)
         self.__sslopt = sslopt
         self.__proxy_type = proxy_type
         self.__proxy_host = proxy_host
@@ -54,14 +50,6 @@ class WebSocketConfig:
     @property
     def ping_interval(self):
         return self.__ping_interval
-
-    @property
-    def ping_timeout(self):
-        return self.__ping_timeout
-
-    @property
-    def ping_payload(self):
-        return self.__ping_payload
 
     @property
     def sslopt(self):
@@ -87,15 +75,15 @@ class WebSocketConfig:
 class HTTPConfig:
 
     def __init__(self,
-                 connect_timeout: float = 10.0,
-                 read_timeout: float = 15.0,
+                 connect_timeout: float = 5.0,
+                 read_timeout: float = 10.0,
                  http_proxy: Optional[str] = None,
                  ca_certs: Optional[str] = None,
                  cert_file: Optional[str] = None,
                  disable_ssl_verification: bool = False):
 
-        self.__connect_timeout = 10.0 if connect_timeout is None or connect_timeout <= 0 else connect_timeout
-        self.__read_timeout = 15.0 if read_timeout is None or read_timeout <= 0 else read_timeout
+        self.__connect_timeout = 5.0 if connect_timeout is None or connect_timeout <= 0 else connect_timeout
+        self.__read_timeout = 10.0 if read_timeout is None or read_timeout <= 0 else read_timeout
         self.__http_proxy = http_proxy
         self.__ca_certs = ca_certs
         self.__cert_file = cert_file

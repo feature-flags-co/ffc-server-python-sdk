@@ -96,9 +96,6 @@ class Streaming(Thread, UpdateProcessor):
             try:
                 self._init_wsapp()
                 self.__wsapp.run_forever(sslopt=self.__config.websocket.sslopt,
-                                         ping_interval=self.__config.websocket.ping_interval,
-                                         ping_timeout=self.__config.websocket.ping_timeout,
-                                         ping_payload=self.__config.websocket.ping_payload,
                                          http_proxy_host=self.__config.websocket.proxy_host,
                                          http_proxy_port=self.__config.websocket.proxy_port,
                                          http_proxy_auth=self.__config.websocket.proxy_auth,

@@ -32,7 +32,7 @@ def build_headers(env_secret: str, extra_headers={}):
     def build_default_headers():
         return {
             'envSecret': env_secret or '',
-            'User-Agent': 'ffc-python-server-sdk',
+            'User-Agent': 'fb-python-server-sdk',
             'Content-Type': 'application/json'
         }
 
